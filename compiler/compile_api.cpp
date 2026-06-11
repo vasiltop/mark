@@ -5,7 +5,40 @@
 #include "eval.hpp"
 #include "emit.hpp"
 
+#include <fstream>
+#include <sstream>
+
 namespace compile {
+
+internal auto read_include(const char *path) -> std::string {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return {};
+  std::ostringstream ss;
+  ss << in.rdbuf();
+  return ss.str();
+}
+
+internal auto expand_includes(const std::string &source, s32 depth) -> std::string {
+  if (depth > 8) return source;
+  std::string out;
+  std::istringstream in(source);
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.rfind("#include \"", 0) == 0) {
+      auto start = line.find('"') + 1;
+      auto end = line.rfind('"');
+      if (end != std::string::npos && end > start) {
+        auto path = line.substr(start, end - start);
+        auto nested = read_include(path.c_str());
+        if (!nested.empty()) out += expand_includes(nested, depth + 1);
+        continue;
+      }
+    }
+    out += line;
+    out += '\n';
+  }
+  return out;
+}
 
 auto compile_mark(const char *source, s32 len) -> CompileResult {
   arena::Arena *arena = arena::alloc();
@@ -16,8 +49,10 @@ auto compile_mark(const char *source, s32 len) -> CompileResult {
     };
   }
 
+  std::string expanded = expand_includes(std::string(source, len), 0);
+
   lexer::Lexer lex {};
-  lexer::lex_init(&lex, source, len);
+  lexer::lex_init(&lex, expanded.c_str(), (s32)expanded.size());
 
   parser::Parser p {
     .lex = &lex,

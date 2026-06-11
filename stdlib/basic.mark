@@ -1,0 +1,8 @@
+#set text(font-family: "Inter, system-ui, sans-serif", font-size: 11pt, color: #222)
+#set link(link-color: #0055aa)
+
+#show heading: set block(class: "title")
+
+= Document title
+
+Use this theme for clean web documents.

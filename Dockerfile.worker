@@ -1,0 +1,12 @@
+FROM voidlinux/void-current-full:latest
+
+RUN xbps-install -Sy g++ librdkafka-devel && xbps-remove -O
+
+WORKDIR /app
+COPY compiler ./compiler
+COPY worker ./worker
+COPY run.sh ./
+
+RUN g++ -Icompiler worker/worker.cpp -std=c++23 -Wall -Wextra -O2 -lrdkafka -o /mark-worker
+
+CMD ["/mark-worker"]
