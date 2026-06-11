@@ -18,6 +18,23 @@ struct CompileResult {
   CompileError error;
 };
 
-auto compile_mark(const char *source, s32 len) -> CompileResult;
+struct AssetInput {
+  const char *path;
+  const char *data_base64;
+  const char *mime_type;
+};
+
+struct CompileOptions {
+  const char *context_json;
+  s32 context_json_len;
+  AssetInput *assets;
+  s32 asset_count;
+};
+
+auto compile_mark(const char *source, s32 len, const CompileOptions *opts) -> CompileResult;
+
+inline auto compile_mark(const char *source, s32 len) -> CompileResult {
+  return compile_mark(source, len, nullptr);
+}
 
 } // namespace compile

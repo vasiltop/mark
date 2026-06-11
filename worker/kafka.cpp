@@ -2,9 +2,9 @@
 #include "../compiler/compile_api.hpp"
 
 #include <cstdlib>
-#include <cstring>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include <librdkafka/rdkafka.h>
 
@@ -49,6 +49,71 @@ internal auto extract_json_string(const std::string &json, const char *key) -> s
   return out;
 }
 
+internal auto extract_json_object(const std::string &json, const char *key) -> std::string {
+  auto needle = std::string("\"") + key + "\":";
+  auto pos = json.find(needle);
+  if (pos == std::string::npos) return {};
+  pos += needle.size();
+  while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
+  if (pos >= json.size() || json[pos] != '{') return {};
+  s32 depth = 0;
+  auto start = pos;
+  for (; pos < json.size(); pos++) {
+    if (json[pos] == '{') depth++;
+    else if (json[pos] == '}') {
+      depth--;
+      if (depth == 0) return json.substr(start, pos - start + 1);
+    }
+  }
+  return {};
+}
+
+internal auto parse_assets(const std::string &json, std::vector<compile::AssetInput> *out,
+  std::vector<std::string> *storage) -> void {
+  auto obj = extract_json_object(json, "assets");
+  if (obj.empty()) return;
+  std::size_t pos = 0;
+  while (pos < obj.size()) {
+    pos = obj.find('"', pos);
+    if (pos == std::string::npos) break;
+    pos++;
+    std::string path;
+    for (; pos < obj.size(); pos++) {
+      if (obj[pos] == '\\' && pos + 1 < obj.size()) {
+        path.push_back(obj[pos + 1]);
+        pos += 2;
+        continue;
+      }
+      if (obj[pos] == '"') break;
+      path.push_back(obj[pos]);
+    }
+    pos++;
+    pos = obj.find('"', pos);
+    if (pos == std::string::npos) break;
+    pos++;
+    std::string data;
+    for (; pos < obj.size(); pos++) {
+      if (obj[pos] == '\\' && pos + 1 < obj.size()) {
+        data.push_back(obj[pos + 1]);
+        pos += 2;
+        continue;
+      }
+      if (obj[pos] == '"') break;
+      data.push_back(obj[pos]);
+    }
+    if (!path.empty() && !data.empty()) {
+      storage->push_back(path);
+      storage->push_back(data);
+      out->push_back(compile::AssetInput {
+        .path = storage->at(storage->size() - 2).c_str(),
+        .data_base64 = storage->at(storage->size() - 1).c_str(),
+        .mime_type = "application/octet-stream",
+      });
+    }
+    pos++;
+  }
+}
+
 internal auto publish_result(rd_kafka_t *producer, const char *topic, const std::string &payload) -> bool {
   return rd_kafka_producev(
     producer,
@@ -64,11 +129,28 @@ internal auto handle_job(rd_kafka_t *producer, const Config &config, const std::
   auto source = extract_json_string(payload, "source");
   if (job_id.empty()) return;
 
-  auto result = compile::compile_mark(source.c_str(), (s32)source.size());
+  compile::CompileOptions opts {};
+  auto context = extract_json_object(payload, "context");
+  if (!context.empty()) {
+    opts.context_json = context.c_str();
+    opts.context_json_len = (s32)context.size();
+  }
+
+  std::vector<std::string> asset_storage;
+  std::vector<compile::AssetInput> asset_inputs;
+  parse_assets(payload, &asset_inputs, &asset_storage);
+  if (!asset_inputs.empty()) {
+    opts.assets = asset_inputs.data();
+    opts.asset_count = (s32)asset_inputs.size();
+  }
+
+  auto result = compile::compile_mark(source.c_str(), (s32)source.size(), &opts);
   std::string out;
   if (!result.ok) {
     out = "{\"jobId\":\"" + json_escape(job_id) + "\",\"error\":\"" +
-      json_escape(result.error.msg) + "\"}";
+      json_escape(result.error.msg) + "\",\"errorLine\":" +
+      std::to_string(result.error.line) + ",\"errorCol\":" +
+      std::to_string(result.error.col) + "}";
   } else {
     out = "{\"jobId\":\"" + json_escape(job_id) + "\",\"html\":\"" +
       json_escape(result.html) + "\",\"css\":\"" + json_escape(result.css) + "\"}";
