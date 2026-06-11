@@ -37,6 +37,7 @@ enum class TokenKind {
   Int,
   Slash,
   Semicolon,
+  Math,
 };
 
 struct Token {

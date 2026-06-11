@@ -58,6 +58,11 @@ internal auto emit_inline(std::string *out, ir::InlineNode *node, const eval::St
         append_escaped(out, r.label);
         out->append("</a>");
       },
+      [&](const ir::Math &m) {
+        out->append("<span class=\"mark-math\">");
+        append_escaped(out, m.start, m.len);
+        out->append("</span>");
+      },
       [&](const ir::FuncCall &f) {
         if (f.name && std::strcmp(f.name, "align") == 0) {
           out->append("<span class=\"mark-align\">");
@@ -92,6 +97,8 @@ internal auto emit_css(std::string *css, const eval::StyleCtx &style) -> void {
   css->append(".mark-grid { display: grid; gap: 1em; margin: 1em 0; }\n");
   css->append(".mark-box { border: 1px solid #ccc; padding: 1em; margin: 1em 0; }\n");
   css->append(".mark-align { text-align: center; margin: 1em 0; }\n");
+  css->append(".mark-math { font-family: ui-monospace, monospace; font-style: italic; }\n");
+  css->append("@media print { body { max-width: none; margin: 0; } .mark-heading { page-break-after: avoid; } }\n");
 }
 
 internal auto find_show_class(const ir::Document &doc, const char *target) -> const char * {
@@ -104,7 +111,7 @@ internal auto find_show_class(const ir::Document &doc, const char *target) -> co
   return nullptr;
 }
 
-internal auto emit_block(std::string *out, ir::BlockNode *node, const eval::StyleCtx &style, const ir::Document &doc) -> void {
+internal auto emit_block(std::string *out, ir::BlockNode *node, eval::StyleCtx *style, const ir::Document &doc) -> void {
   for (; node; node = node->next) {
     std::visit(overloaded {
       [&](const ir::Heading &h) {
@@ -125,21 +132,32 @@ internal auto emit_block(std::string *out, ir::BlockNode *node, const eval::Styl
           out->append("\"");
         }
         out->append(">");
-        emit_inline(out, h.content, style);
+        if (style->heading_numbering) {
+          for (s32 i = lvl + 1; i <= 6; i++) style->heading_counters[i] = 0;
+          style->heading_counters[lvl]++;
+          for (s32 i = 1; i <= lvl; i++) {
+            if (i > 1) out->append(".");
+            char num[16];
+            std::snprintf(num, sizeof(num), "%d", style->heading_counters[i]);
+            out->append(num);
+          }
+          out->append(" ");
+        }
+        emit_inline(out, h.content, *style);
         out->append("</");
         out->append(tag);
         out->append(">\n");
       },
       [&](const ir::Paragraph &p) {
         out->append("<p class=\"mark-para\">");
-        emit_inline(out, p.content, style);
+        emit_inline(out, p.content, *style);
         out->append("</p>\n");
       },
       [&](const ir::List &l) {
         out->append("<ul class=\"mark-list\">\n");
         for (auto *item = l.first; item; item = item->next) {
           out->append("<li>");
-          emit_inline(out, item->content, style);
+          emit_inline(out, item->content, *style);
           out->append("</li>\n");
         }
         out->append("</ul>\n");
@@ -150,7 +168,7 @@ internal auto emit_block(std::string *out, ir::BlockNode *node, const eval::Styl
           out->append("<tr>");
           for (auto *cell = row->first; cell; cell = cell->next) {
             out->append("<td>");
-            emit_inline(out, cell->content, style);
+            emit_inline(out, cell->content, *style);
             out->append("</td>");
           }
           out->append("</tr>\n");
@@ -166,21 +184,21 @@ internal auto emit_block(std::string *out, ir::BlockNode *node, const eval::Styl
           std::snprintf(buf, sizeof(buf), "%d", lb.columns);
           out->append(buf);
           out->append(", 1fr)\">");
-          emit_inline(out, lb.content, style);
+          emit_inline(out, lb.content, *style);
           out->append("</div>\n");
         } else if (lb.kind && std::strcmp(lb.kind, "box") == 0) {
           out->append("<div class=\"mark-box\">");
-          emit_inline(out, lb.content, style);
+          emit_inline(out, lb.content, *style);
           out->append("</div>\n");
         } else if (lb.kind && std::strcmp(lb.kind, "align") == 0) {
           out->append("<div class=\"mark-align\">");
-          emit_inline(out, lb.content, style);
+          emit_inline(out, lb.content, *style);
           out->append("</div>\n");
         }
       },
       [&](const ir::FuncCall &f) {
         out->append("<div class=\"mark-func\">");
-        emit_inline(out, f.content, style);
+        emit_inline(out, f.content, *style);
         out->append("</div>\n");
       },
     }, node->item);
@@ -193,7 +211,7 @@ auto emit_document(const ir::Document &doc, EmitCtx *ctx) -> void {
   ctx->html.append("<style>\n");
   ctx->html.append(ctx->css);
   ctx->html.append("</style>\n<title>Mark</title>\n</head>\n<body>\n<article class=\"mark-doc\">\n");
-  emit_block(&ctx->html, doc.first, ctx->style, doc);
+  emit_block(&ctx->html, doc.first, &ctx->style, doc);
   ctx->html.append("</article>\n</body>\n</html>\n");
 }
 

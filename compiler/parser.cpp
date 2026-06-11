@@ -65,6 +65,13 @@ internal auto parse_inline(Parser *p, ir::InlineNode **head, ir::InlineNode **ta
       continue;
     }
 
+    if (p->cur.kind == lexer::TokenKind::Math && p->cur.len > 0) {
+      auto tok = p->cur;
+      advance(p);
+      push_inline(p, head, tail, ir::Math { .start = tok.start, .len = tok.len });
+      continue;
+    }
+
     if (p->cur.kind == lexer::TokenKind::Text && p->cur.len > 0) {
       auto tok = p->cur;
       advance(p);
@@ -406,6 +413,15 @@ internal auto parse_table(Parser *p, ir::BlockNode **head, ir::BlockNode **tail)
       continue;
     }
 
+    if (p->cur.kind == lexer::TokenKind::Text && p->cur.len > 0) {
+      auto only_ws = true;
+      for (s32 i = 0; i < p->cur.len; i++) {
+        char c = p->cur.start[i];
+        if (c != ' ' && c != '\t') { only_ws = false; break; }
+      }
+      if (only_ws) { advance(p); continue; }
+    }
+
     if (p->cur.kind == lexer::TokenKind::Ident && p->cur.len == 7 && std::strncmp(p->cur.start, "columns", 7) == 0) {
       advance(p);
       if (p->cur.kind == lexer::TokenKind::Colon) advance(p);
@@ -423,6 +439,7 @@ internal auto parse_table(Parser *p, ir::BlockNode **head, ir::BlockNode **tail)
       ir::InlineNode *cell_head = nullptr;
       ir::InlineNode *cell_tail = nullptr;
       if (!parse_content_block(p, &cell_head, &cell_tail)) return false;
+      p->lex->mode = lexer::Mode::Code;
 
       if (!cur_row || cell_in_row >= columns) {
         auto *row = arena::push<ir::TableRow>(p->arena);

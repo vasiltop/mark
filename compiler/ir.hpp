@@ -34,12 +34,17 @@ struct Ref {
   const char *label;
 };
 
+struct Math {
+  const char *start;
+  s32 len;
+};
+
 struct FuncCall {
   const char *name;
   InlineNode *content;
 };
 
-using InlineItem = std::variant<Text, Strong, Emph, Link, Image, Ref, FuncCall>;
+using InlineItem = std::variant<Text, Strong, Emph, Link, Image, Ref, Math, FuncCall>;
 
 struct InlineNode {
   InlineItem item;

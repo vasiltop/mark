@@ -84,7 +84,7 @@ internal auto lex_text_run(Lexer *lex) -> Token {
   while (true) {
     char c = peek(lex);
     if (c == '\0' || c == '\n') break;
-    if (c == '#' || c == '*' || c == '_' || c == '\\' || c == '[' || c == ']') break;
+    if (c == '#' || c == '*' || c == '_' || c == '\\' || c == '[' || c == ']' || c == '$') break;
     if (c == '<' && lex->mode == Mode::Markup) break;
     advance(lex);
   }
@@ -115,6 +115,10 @@ internal auto lex_code(Lexer *lex) -> Token {
     case '.': return make_token(lex, TokenKind::Dot, lex->cur - 1, 1);
     case ';': return make_token(lex, TokenKind::Semicolon, lex->cur - 1, 1);
     case '@': return make_token(lex, TokenKind::At, lex->cur - 1, 1);
+    case '#':
+      advance(lex);
+      lex->mode = Mode::Markup;
+      return make_token(lex, TokenKind::Hash, lex->cur - 1, 1);
     case '<': return make_token(lex, TokenKind::Lt, lex->cur - 1, 1);
     case '>': return make_token(lex, TokenKind::Gt, lex->cur - 1, 1);
     default: return make_token(lex, TokenKind::Text, lex->cur - 1, 1);
@@ -155,6 +159,15 @@ internal auto lex_markup(Lexer *lex) -> Token {
   if (c == '\\') { advance(lex); return make_token(lex, TokenKind::Backslash, lex->cur - 1, 1); }
   if (c == '[') { advance(lex); return make_token(lex, TokenKind::LBracket, lex->cur - 1, 1); }
   if (c == ']') { advance(lex); return make_token(lex, TokenKind::RBracket, lex->cur - 1, 1); }
+  if (c == '$') {
+    advance(lex);
+    auto start = lex->cur;
+    while (peek(lex) != '$' && peek(lex) != '\0' && peek(lex) != '\n') advance(lex);
+    auto len = (s32)(lex->cur - start);
+    if (peek(lex) == '$') advance(lex);
+    return make_token(lex, TokenKind::Math, start, len);
+  }
+
   if (c == '@') { advance(lex); return make_token(lex, TokenKind::At, lex->cur - 1, 1); }
   if (c == '<') { advance(lex); return make_token(lex, TokenKind::Lt, lex->cur - 1, 1); }
 

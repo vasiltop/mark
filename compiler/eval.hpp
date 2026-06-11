@@ -11,6 +11,8 @@ struct StyleCtx {
   std::string font_size {"12pt"};
   std::string text_color {"#333"};
   std::string link_color {"#0066cc"};
+  bool heading_numbering {false};
+  s32 heading_counters[7] {};
 };
 
 struct EvalResult {
