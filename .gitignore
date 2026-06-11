@@ -1,5 +1,5 @@
 bin/
-*.html
+out.html
 backend/target/
 frontend/node_modules/
 frontend/dist/
