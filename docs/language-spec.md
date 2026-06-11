@@ -10,14 +10,18 @@ Mark is a Typst-like document language that compiles to HTML.
 - Emphasis: `*strong*`, `_emphasis_`
 - Lists: `- item`
 - References: `@label` (requires `<label>` on a heading)
+- Math: `$E = mc^2$` (inline, rendered as styled span)
 
 ### Code
 
 - Functions: `#link("url")[label]`, `#image("path", alt: "text")`
-- Tables: `#table(columns: 2, [A], [B], [C], [D])`
+- Tables: `#table(columns: 2, [A], [B], [C], [D])` (multiline args supported)
 - Layout: `#grid(columns: 2)[...]`, `#box[...]`, `#align(center)[...]`
 - Styling: `#set text(font-family: "Georgia, serif", font-size: 12pt)`
 - Show rules: `#show heading: set block(class: "title")`
+- Heading numbers: `#set heading(numbering: "1.")`
+- Modules: `#include "file.mark"`, `#import "file.mark"`
+- Context: `#context("title")` resolved from compile job JSON
 
 ## Pipeline
 
@@ -34,18 +38,27 @@ flowchart LR
 ## Local development
 
 ```bash
-# compiler
+# quick start
+./dev.sh
+
+# compiler only
 ./run.sh
 ./bin/mark examples/hello.mark > out.html
+./bin/mark examples/academic.mark > out.html
 
-# stack
-docker-compose up -d zookeeper kafka
+# full stack
+docker compose up -d zookeeper kafka
 ./bin/mark-worker &
 java -jar backend/target/backend-0.0.1-SNAPSHOT.jar
-
-# frontend
 cd frontend && npm install && npm run dev
 ```
+
+## API
+
+- `POST /api/jobs` — `{ "source": "...", "context": { "title": "..." }, "assets": { "path": "assetId" } }`
+- `GET /api/jobs/{id}` — poll job status
+- `GET /api/jobs/{id}/events` — SSE stream until done/error
+- `POST /api/assets` — multipart upload, returns `{ "assetId": "..." }`
 
 ## Layout
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import './App.css'
 
 type CompileJob = {
@@ -7,32 +7,54 @@ type CompileJob = {
   html?: string | null
   css?: string | null
   error?: string | null
+  errorLine?: number | null
+  errorCol?: number | null
 }
 
 const defaultSource = `#set text(font-family: "Georgia, serif", font-size: 12pt)
+#set heading(numbering: "1.")
 
 = Hello Mark
 
-This is a *strong* and _emphasized_ paragraph.
+This is a *strong* and _emphasized_ paragraph with inline math $E = mc^2$.
 
 #link("https://example.com")[Example link]
 `
-
-async function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
 
 function App() {
   const [source, setSource] = useState(defaultSource)
   const [status, setStatus] = useState('idle')
   const [error, setError] = useState<string | null>(null)
+  const [errorLine, setErrorLine] = useState<number | null>(null)
   const [preview, setPreview] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const lineCount = useMemo(() => source.split('\n').length, [source])
+  const lines = useMemo(() => source.split('\n'), [source])
+
+  async function waitForJob(jobId: string): Promise<CompileJob> {
+    return new Promise((resolve, reject) => {
+      const source = new EventSource(`/api/jobs/${jobId}/events`)
+      source.addEventListener('status', (event) => {
+        const job: CompileJob = JSON.parse((event as MessageEvent).data)
+        if (job.status === 'done') {
+          source.close()
+          resolve(job)
+        } else if (job.status === 'error') {
+          source.close()
+          resolve(job)
+        }
+      })
+      source.onerror = () => {
+        source.close()
+        reject(new Error('lost connection to compile stream'))
+      }
+    })
+  }
 
   async function compile() {
     setStatus('submitting')
     setError(null)
+    setErrorLine(null)
 
     try {
       const create = await fetch('/api/jobs', {
@@ -45,21 +67,19 @@ function App() {
       const job: CompileJob = await create.json()
 
       setStatus('waiting')
-      for (let i = 0; i < 60; i++) {
-        await sleep(500)
-        const res = await fetch(`/api/jobs/${job.jobId}`)
-        if (!res.ok) throw new Error('failed to poll job')
-        const current: CompileJob = await res.json()
-        if (current.status === 'done') {
-          setPreview(current.html ?? '')
-          setStatus('done')
-          return
-        }
-        if (current.status === 'error') {
-          throw new Error(current.error ?? 'compile failed')
-        }
+      const result = await waitForJob(job.jobId)
+      if (result.status === 'done') {
+        setPreview(result.html ?? '')
+        setStatus('done')
+        return
       }
-      throw new Error('timed out waiting for compile result')
+      setError(result.error ?? 'compile failed')
+      setErrorLine(result.errorLine ?? null)
+      setStatus('error')
+      if (result.errorLine && textareaRef.current) {
+        const lineHeight = 1.5 * 15.2
+        textareaRef.current.scrollTop = Math.max(0, (result.errorLine - 2) * lineHeight)
+      }
     } catch (err) {
       setStatus('error')
       setError(err instanceof Error ? err.message : 'unknown error')
@@ -75,15 +95,31 @@ function App() {
         </button>
         <span className="status">{status}</span>
       </header>
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error">
+          {errorLine ? `line ${errorLine}: ` : ''}
+          {error}
+        </p>
+      )}
       <div className="panes">
         <section className="editor-pane">
-          <div className="pane-title">Source · {lineCount} lines</div>
-          <textarea
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            spellCheck={false}
-          />
+          <div className="pane-title">Source · {lines.length} lines</div>
+          <div className="editor-shell">
+            <div className="gutter" aria-hidden="true">
+              {lines.map((_, i) => (
+                <div key={i} className={errorLine === i + 1 ? 'gutter-line error-line' : 'gutter-line'}>
+                  {i + 1}
+                </div>
+              ))}
+            </div>
+            <textarea
+              ref={textareaRef}
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              spellCheck={false}
+              className={errorLine ? 'has-error' : ''}
+            />
+          </div>
         </section>
         <section className="preview-pane">
           <div className="pane-title">Preview</div>

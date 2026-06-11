@@ -1,0 +1,16 @@
+#import "stdlib/academic.mark"
+
+= Mark Academic Example
+
+Author · Compile-time context demo
+
+== Abstract
+
+We present *Mark*, a Typst-like language for semantic HTML documents.
+Inline math: $E = mc^2$.
+
+The #link("https://kafka.apache.org")[Kafka] queue decouples the API from compile workers.
+
+== Architecture
+
+#table(columns: 2, [*Layer*], [*Role*], [React], [Authoring + preview], [Spring Boot], [Jobs + assets], [C++ worker], [Parse to HTML])

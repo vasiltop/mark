@@ -75,6 +75,34 @@ button:disabled {
   border-bottom: 1px solid #333;
 }
 
+.editor-shell {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.gutter {
+  padding: 1rem 0.5rem 1rem 0.75rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #666;
+  background: #151515;
+  border-right: 1px solid #333;
+  overflow: hidden;
+  user-select: none;
+}
+
+.gutter-line {
+  height: calc(0.95rem * 1.5);
+}
+
+.gutter-line.error-line {
+  color: #ffb3b3;
+  background: #4a1f1f;
+}
+
 textarea {
   flex: 1;
   width: 100%;
@@ -86,6 +114,10 @@ textarea {
   line-height: 1.5;
   background: #1a1a1a;
   color: #f2f2f2;
+}
+
+textarea.has-error {
+  box-shadow: inset 3px 0 0 #cc4444;
 }
 
 iframe {

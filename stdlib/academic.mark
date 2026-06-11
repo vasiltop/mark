@@ -1,0 +1,5 @@
+#set text(font-family: "Merriweather, Georgia, serif", font-size: 11pt, color: "#1a1a1a")
+#set link(link-color: #004488)
+#set heading(numbering: "1.")
+
+#show heading: set block(class: "paper-heading")
