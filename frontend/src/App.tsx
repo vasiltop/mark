@@ -55,6 +55,7 @@ function App() {
     setStatus('submitting')
     setError(null)
     setErrorLine(null)
+    setPreview('')
 
     try {
       const create = await fetch('/api/jobs', {
@@ -86,12 +87,26 @@ function App() {
     }
   }
 
+  function downloadHtml() {
+    if (!preview) return
+    const blob = new Blob([preview], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'document.html'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="app">
       <header>
         <h1>Mark</h1>
         <button type="button" onClick={compile} disabled={status === 'submitting' || status === 'waiting'}>
           Compile
+        </button>
+        <button type="button" className="secondary" onClick={downloadHtml} disabled={!preview}>
+          Download HTML
         </button>
         <span className="status">{status}</span>
       </header>

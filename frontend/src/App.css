@@ -42,6 +42,15 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button.secondary {
+  background: #2a2a2a;
+  border: 1px solid #444;
+}
+
+button.secondary:not(:disabled):hover {
+  background: #333;
+}
+
 .status {
   color: #aaa;
   font-size: 0.9rem;
