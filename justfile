@@ -45,6 +45,13 @@ compile-out example="hello" out="out.html":
 build-all: build build-backend
     cd "{{root}}/frontend" && npm install && npm run build
 
+# Run the same checks as GitHub Actions CI
+ci: build
+    cd "{{root}}" && ./bin/mark examples/hello.mark >/dev/null
+    cd "{{root}}" && ./bin/mark examples/academic.mark >/dev/null
+    mvn -f backend/pom.xml -B package -DskipTests
+    cd "{{root}}/frontend" && npm ci && npm run build && npm run lint
+
 # Start Kafka, worker, backend, and the Vite dev server
 dev:
     #!/usr/bin/env bash

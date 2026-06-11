@@ -13,4 +13,4 @@ The #link("https://kafka.apache.org")[Kafka] queue decouples the API from compil
 
 == Architecture
 
-#table(columns: 2, [*Layer*], [*Role*], [React], [Authoring + preview], [Spring Boot], [Jobs + assets], [C++ worker], [Parse to HTML])
+#table(columns: 2, [Layer][Role][React][Authoring + preview][Spring Boot][Jobs + assets][C++ worker][Parse to HTML])

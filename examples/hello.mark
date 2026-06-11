@@ -7,7 +7,3 @@ This is a *strong* and _emphasized_ paragraph with a #link("https://example.com"
 
 - First item
 - Second item
-
-= Table example
-
-#table(columns: 2, [*Name*], [*Role*], [Mark], [Language], [HTML], [Output])
