@@ -5,20 +5,21 @@ Typst-like markup language that compiles to HTML.
 ## Quick start
 
 ```bash
-./run.sh
-./bin/mark examples/hello.mark > out.html
+just dev
 ```
 
-## Full stack
+## Common commands
 
 ```bash
-docker-compose up -d zookeeper kafka
-./bin/mark-worker &
-java -jar backend/target/backend-0.0.1-SNAPSHOT.jar
-cd frontend && npm install && npm run dev
+just build              # C++ compiler and worker
+just compile            # compile examples/hello.mark to stdout
+just compile-out        # compile to out.html
+just ci                 # run CI checks locally
+just stop               # stop worker and backend
+just down               # stop everything including Kafka
+just status             # show what's running
+just help               # list all recipes
 ```
-
-Open http://localhost:5173 — edit `.mark` source, click Compile, preview HTML.
 
 ## Docs
 
