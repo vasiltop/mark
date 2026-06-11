@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { ChatPanel } from './ChatPanel'
 import './App.css'
 
 type CompileJob = {
@@ -117,6 +118,7 @@ function App() {
         </p>
       )}
       <div className="panes">
+        <ChatPanel getSource={() => source} onApplySource={setSource} />
         <section className="editor-pane">
           <div className="pane-title">Source · {lines.length} lines</div>
           <div className="editor-shell">
