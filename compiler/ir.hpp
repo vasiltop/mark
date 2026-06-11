@@ -80,11 +80,29 @@ struct Table {
   TableRow *first;
 };
 
-struct SetRule {
-  const char *target;
+struct StyleProp {
+  const char *key;
+  const char *value;
+  StyleProp *next;
 };
 
-using BlockItem = std::variant<Heading, Paragraph, List, Table, SetRule, FuncCall>;
+struct SetRule {
+  const char *target;
+  StyleProp *props;
+};
+
+struct ShowRule {
+  const char *target;
+  const char *class_name;
+};
+
+struct LayoutBlock {
+  const char *kind;
+  s32 columns;
+  InlineNode *content;
+};
+
+using BlockItem = std::variant<Heading, Paragraph, List, Table, SetRule, ShowRule, LayoutBlock, FuncCall>;
 
 struct BlockNode {
   BlockItem item;

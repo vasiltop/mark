@@ -1,5 +1,6 @@
 #include "emit.hpp"
 #include <cstdio>
+#include <cstring>
 
 namespace emit {
 
@@ -58,6 +59,12 @@ internal auto emit_inline(std::string *out, ir::InlineNode *node, const eval::St
         out->append("</a>");
       },
       [&](const ir::FuncCall &f) {
+        if (f.name && std::strcmp(f.name, "align") == 0) {
+          out->append("<span class=\"mark-align\">");
+          emit_inline(out, f.content, style);
+          out->append("</span>");
+          return;
+        }
         emit_inline(out, f.content, style);
       },
     }, node->item);
@@ -82,9 +89,22 @@ internal auto emit_css(std::string *css, const eval::StyleCtx &style) -> void {
   css->append(".mark-table { border-collapse: collapse; width: 100%; margin: 1em 0; }\n");
   css->append(".mark-table td, .mark-table th { border: 1px solid #ccc; padding: 0.5em 0.75em; }\n");
   css->append(".mark-image { max-width: 100%; height: auto; }\n");
+  css->append(".mark-grid { display: grid; gap: 1em; margin: 1em 0; }\n");
+  css->append(".mark-box { border: 1px solid #ccc; padding: 1em; margin: 1em 0; }\n");
+  css->append(".mark-align { text-align: center; margin: 1em 0; }\n");
 }
 
-internal auto emit_block(std::string *out, ir::BlockNode *node, const eval::StyleCtx &style) -> void {
+internal auto find_show_class(const ir::Document &doc, const char *target) -> const char * {
+  for (auto *block = doc.first; block; block = block->next) {
+    if (auto *show = std::get_if<ir::ShowRule>(&block->item)) {
+      if (show->target && target && std::strcmp(show->target, target) == 0)
+        return show->class_name;
+    }
+  }
+  return nullptr;
+}
+
+internal auto emit_block(std::string *out, ir::BlockNode *node, const eval::StyleCtx &style, const ir::Document &doc) -> void {
   for (; node; node = node->next) {
     std::visit(overloaded {
       [&](const ir::Heading &h) {
@@ -93,7 +113,12 @@ internal auto emit_block(std::string *out, ir::BlockNode *node, const eval::Styl
         tag[1] = (char)('0' + lvl);
         out->append("<");
         out->append(tag);
-        out->append(" class=\"mark-heading\"");
+        out->append(" class=\"mark-heading");
+        if (auto *show_class = find_show_class(doc, "heading")) {
+          out->append(" ");
+          out->append(show_class);
+        }
+        out->append("\"");
         if (h.label) {
           out->append(" id=\"");
           append_escaped(out, h.label);
@@ -133,6 +158,26 @@ internal auto emit_block(std::string *out, ir::BlockNode *node, const eval::Styl
         out->append("</table>\n");
       },
       [&](const ir::SetRule &) {},
+      [&](const ir::ShowRule &) {},
+      [&](const ir::LayoutBlock &lb) {
+        if (lb.kind && std::strcmp(lb.kind, "grid") == 0) {
+          out->append("<div class=\"mark-grid\" style=\"grid-template-columns: repeat(");
+          char buf[16];
+          std::snprintf(buf, sizeof(buf), "%d", lb.columns);
+          out->append(buf);
+          out->append(", 1fr)\">");
+          emit_inline(out, lb.content, style);
+          out->append("</div>\n");
+        } else if (lb.kind && std::strcmp(lb.kind, "box") == 0) {
+          out->append("<div class=\"mark-box\">");
+          emit_inline(out, lb.content, style);
+          out->append("</div>\n");
+        } else if (lb.kind && std::strcmp(lb.kind, "align") == 0) {
+          out->append("<div class=\"mark-align\">");
+          emit_inline(out, lb.content, style);
+          out->append("</div>\n");
+        }
+      },
       [&](const ir::FuncCall &f) {
         out->append("<div class=\"mark-func\">");
         emit_inline(out, f.content, style);
@@ -148,7 +193,7 @@ auto emit_document(const ir::Document &doc, EmitCtx *ctx) -> void {
   ctx->html.append("<style>\n");
   ctx->html.append(ctx->css);
   ctx->html.append("</style>\n<title>Mark</title>\n</head>\n<body>\n<article class=\"mark-doc\">\n");
-  emit_block(&ctx->html, doc.first, ctx->style);
+  emit_block(&ctx->html, doc.first, ctx->style, doc);
   ctx->html.append("</article>\n</body>\n</html>\n");
 }
 

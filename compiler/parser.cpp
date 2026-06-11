@@ -246,6 +246,110 @@ internal auto parse_label(Parser *p) -> const char * {
   return label;
 }
 
+internal auto push_style_prop(Parser *p, ir::StyleProp **head, ir::StyleProp **tail, const char *key, const char *value) -> void {
+  auto *prop = arena::push<ir::StyleProp>(p->arena);
+  prop->key = key;
+  prop->value = value;
+  prop->next = nullptr;
+  if (*tail) (*tail)->next = prop;
+  else *head = prop;
+  *tail = prop;
+}
+
+internal auto parse_style_props(Parser *p) -> ir::StyleProp * {
+  ir::StyleProp *head = nullptr;
+  ir::StyleProp *tail = nullptr;
+  if (p->cur.kind != lexer::TokenKind::LParen) return nullptr;
+  advance(p);
+  while (p->cur.kind != lexer::TokenKind::RParen && p->cur.kind != lexer::TokenKind::Eof) {
+    if (p->cur.kind == lexer::TokenKind::Newline) {
+      advance(p);
+      continue;
+    }
+    if (p->cur.kind == lexer::TokenKind::Ident && p->peek_tok.kind == lexer::TokenKind::Colon) {
+      auto key = arena::push_str(p->arena, p->cur.start, p->cur.len);
+      advance(p);
+      advance(p);
+      if (p->cur.kind == lexer::TokenKind::String) {
+        auto value = unquote_string(p->arena, p->cur);
+        push_style_prop(p, &head, &tail, key, value);
+        advance(p);
+      }
+    } else {
+      advance(p);
+    }
+    if (p->cur.kind == lexer::TokenKind::Comma) advance(p);
+  }
+  if (p->cur.kind == lexer::TokenKind::RParen) advance(p);
+  return head;
+}
+
+internal auto push_block(Parser *p, ir::BlockNode **head, ir::BlockNode **tail, ir::BlockItem item) -> void;
+
+internal auto parse_show_rule(Parser *p, ir::BlockNode **head, ir::BlockNode **tail) -> bool {
+  advance(p);
+  if (p->cur.kind != lexer::TokenKind::Ident) {
+    set_error(p, "expected show target");
+    return false;
+  }
+  auto target = arena::push_str(p->arena, p->cur.start, p->cur.len);
+  advance(p);
+  const char *class_name = nullptr;
+  while (p->cur.kind != lexer::TokenKind::Newline && p->cur.kind != lexer::TokenKind::Eof) {
+    if (p->cur.kind == lexer::TokenKind::Ident && p->cur.len == 5 && std::strncmp(p->cur.start, "class", 5) == 0) {
+      advance(p);
+      if (p->cur.kind == lexer::TokenKind::Colon) advance(p);
+      if (p->cur.kind == lexer::TokenKind::String) {
+        class_name = unquote_string(p->arena, p->cur);
+        advance(p);
+      }
+    } else {
+      advance(p);
+    }
+  }
+  push_block(p, head, tail, ir::ShowRule { .target = target, .class_name = class_name });
+  return true;
+}
+
+internal auto parse_layout_block(Parser *p, const char *kind, ir::BlockNode **head, ir::BlockNode **tail) -> bool {
+  advance(p);
+  s32 columns = 1;
+  if (p->cur.kind == lexer::TokenKind::LParen) {
+    advance(p);
+    while (p->cur.kind != lexer::TokenKind::RParen && p->cur.kind != lexer::TokenKind::Eof) {
+      if (p->cur.kind == lexer::TokenKind::Newline) { advance(p); continue; }
+      if (p->cur.kind == lexer::TokenKind::Ident && p->cur.len == 7 && std::strncmp(p->cur.start, "columns", 7) == 0) {
+        advance(p);
+        if (p->cur.kind == lexer::TokenKind::Colon) advance(p);
+        if (p->cur.kind == lexer::TokenKind::Int) {
+          columns = 0;
+          for (s32 i = 0; i < p->cur.len; i++) columns = columns * 10 + (p->cur.start[i] - '0');
+          advance(p);
+        }
+      } else if (p->cur.kind == lexer::TokenKind::LBracket) {
+        break;
+      } else {
+        advance(p);
+      }
+      if (p->cur.kind == lexer::TokenKind::Comma) advance(p);
+    }
+    if (p->cur.kind == lexer::TokenKind::RParen) advance(p);
+  }
+
+  ir::InlineNode *content_head = nullptr;
+  ir::InlineNode *content_tail = nullptr;
+  if (p->cur.kind == lexer::TokenKind::LBracket) {
+    if (!parse_content_block(p, &content_head, &content_tail)) return false;
+  }
+
+  push_block(p, head, tail, ir::LayoutBlock {
+    .kind = arena::push_str(p->arena, kind, (s32)std::strlen(kind)),
+    .columns = columns,
+    .content = content_head,
+  });
+  return true;
+}
+
 internal auto parse_block(Parser *p, ir::BlockNode **head, ir::BlockNode **tail) -> bool;
 
 internal auto push_block(Parser *p, ir::BlockNode **head, ir::BlockNode **tail, ir::BlockItem item) -> void {
@@ -368,8 +472,32 @@ internal auto parse_block(Parser *p, ir::BlockNode **head, ir::BlockNode **tail)
       if (p->cur.kind != lexer::TokenKind::Ident) { set_error(p, "expected target after set"); return false; }
       auto target = arena::push_str(p->arena, p->cur.start, p->cur.len);
       advance(p);
-      while (p->cur.kind != lexer::TokenKind::Newline && p->cur.kind != lexer::TokenKind::Eof) advance(p);
-      push_block(p, head, tail, ir::SetRule { .target = target });
+      auto props = parse_style_props(p);
+      push_block(p, head, tail, ir::SetRule { .target = target, .props = props });
+      skip_newlines(p);
+      return parse_block(p, head, tail);
+    }
+
+    if (p->cur.kind == lexer::TokenKind::Ident && p->cur.len == 4 && std::strncmp(p->cur.start, "show", 4) == 0) {
+      if (!parse_show_rule(p, head, tail)) return false;
+      skip_newlines(p);
+      return parse_block(p, head, tail);
+    }
+
+    if (p->cur.kind == lexer::TokenKind::Ident && p->cur.len == 4 && std::strncmp(p->cur.start, "grid", 4) == 0) {
+      if (!parse_layout_block(p, "grid", head, tail)) return false;
+      skip_newlines(p);
+      return parse_block(p, head, tail);
+    }
+
+    if (p->cur.kind == lexer::TokenKind::Ident && p->cur.len == 3 && std::strncmp(p->cur.start, "box", 3) == 0) {
+      if (!parse_layout_block(p, "box", head, tail)) return false;
+      skip_newlines(p);
+      return parse_block(p, head, tail);
+    }
+
+    if (p->cur.kind == lexer::TokenKind::Ident && p->cur.len == 5 && std::strncmp(p->cur.start, "align", 5) == 0) {
+      if (!parse_layout_block(p, "align", head, tail)) return false;
       skip_newlines(p);
       return parse_block(p, head, tail);
     }
