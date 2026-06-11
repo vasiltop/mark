@@ -31,6 +31,17 @@ internal auto json_escape(const std::string &input) -> std::string {
   return out;
 }
 
+internal auto json_unescape_char(char c) -> char {
+  switch (c) {
+    case 'n': return '\n';
+    case 'r': return '\r';
+    case 't': return '\t';
+    case '"': return '"';
+    case '\\': return '\\';
+    default: return c;
+  }
+}
+
 internal auto extract_json_string(const std::string &json, const char *key) -> std::string {
   auto needle = std::string("\"") + key + "\":\"";
   auto pos = json.find(needle);
@@ -39,7 +50,7 @@ internal auto extract_json_string(const std::string &json, const char *key) -> s
   std::string out;
   for (; pos < json.size(); pos++) {
     if (json[pos] == '\\' && pos + 1 < json.size()) {
-      out.push_back(json[pos + 1]);
+      out.push_back(json_unescape_char(json[pos + 1]));
       pos++;
       continue;
     }
@@ -80,8 +91,8 @@ internal auto parse_assets(const std::string &json, std::vector<compile::AssetIn
     std::string path;
     for (; pos < obj.size(); pos++) {
       if (obj[pos] == '\\' && pos + 1 < obj.size()) {
-        path.push_back(obj[pos + 1]);
-        pos += 2;
+        path.push_back(json_unescape_char(obj[pos + 1]));
+        pos++;
         continue;
       }
       if (obj[pos] == '"') break;
@@ -94,8 +105,8 @@ internal auto parse_assets(const std::string &json, std::vector<compile::AssetIn
     std::string data;
     for (; pos < obj.size(); pos++) {
       if (obj[pos] == '\\' && pos + 1 < obj.size()) {
-        data.push_back(obj[pos + 1]);
-        pos += 2;
+        data.push_back(json_unescape_char(obj[pos + 1]));
+        pos++;
         continue;
       }
       if (obj[pos] == '"') break;
