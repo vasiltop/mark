@@ -1,3 +1,9 @@
 package com.mark;
 
-public record CreateJobRequest(String source) {}
+import java.util.Map;
+
+public record CreateJobRequest(
+    String source,
+    Map<String, String> assets,
+    Map<String, Object> context
+) {}

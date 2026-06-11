@@ -23,7 +23,9 @@ public class CompileResultConsumer {
       if (existing == null) return;
 
       if (node.hasNonNull("error")) {
-        store.save(existing.withError(node.get("error").asText()));
+        Integer line = node.has("errorLine") ? node.get("errorLine").asInt() : null;
+        Integer col = node.has("errorCol") ? node.get("errorCol").asInt() : null;
+        store.save(existing.withError(node.get("error").asText(), line, col));
         return;
       }
 

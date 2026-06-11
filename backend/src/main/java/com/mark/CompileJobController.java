@@ -1,7 +1,9 @@
 package com.mark;
 
+import java.io.IOException;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -10,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/api/jobs")
@@ -31,7 +34,7 @@ public class CompileJobController {
     var jobId = UUID.randomUUID().toString();
     var job = CompileJob.pending(jobId, request.source());
     store.save(job);
-    producer.publish(jobId, request.source());
+    producer.publish(jobId, request);
     return job;
   }
 
@@ -40,5 +43,36 @@ public class CompileJobController {
     var job = store.get(jobId);
     if (job == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
     return job;
+  }
+
+  @GetMapping(value = "/{jobId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+  public SseEmitter events(@PathVariable String jobId) {
+    var existing = store.get(jobId);
+    if (existing == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+
+    var emitter = new SseEmitter(60_000L);
+    var thread = new Thread(() -> {
+      try {
+        for (int i = 0; i < 120; i++) {
+          var job = store.get(jobId);
+          if (job == null) {
+            emitter.completeWithError(new ResponseStatusException(HttpStatus.NOT_FOUND));
+            return;
+          }
+          emitter.send(SseEmitter.event().name("status").data(job));
+          if ("done".equals(job.status()) || "error".equals(job.status())) {
+            emitter.complete();
+            return;
+          }
+          Thread.sleep(500);
+        }
+        emitter.completeWithError(new ResponseStatusException(HttpStatus.REQUEST_TIMEOUT, "timed out"));
+      } catch (IOException | InterruptedException e) {
+        emitter.completeWithError(e);
+      }
+    });
+    thread.setDaemon(true);
+    thread.start();
+    return emitter;
   }
 }
