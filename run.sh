@@ -13,6 +13,7 @@ g++ -Icompiler worker/worker.cpp \
     -Wall -Wextra \
     -std=c++23 \
     -g \
+    -lrdkafka \
     -o bin/mark-worker
 
 echo "built bin/mark and bin/mark-worker"
