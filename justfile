@@ -87,6 +87,7 @@ dev:
     echo "Mark dev stack"
     echo "  editor   http://localhost:5173"
     echo "  backend  http://localhost:8080/api/jobs"
+    echo "  agent    http://localhost:8090/agent/health  (run 'just agent' in another terminal)"
     echo ""
     echo "Ctrl+C stops the frontend; run 'just stop' to stop worker and backend"
     echo ""
@@ -122,12 +123,22 @@ backend:
 frontend:
     cd "{{root}}/frontend" && npm run dev
 
+# Install agent deps with uv
+agent-install:
+    cd "{{root}}/agent" && uv sync
+
+# Run LangGraph agent service (Ollama)
+agent:
+    cd "{{root}}/agent" && uv run mark-agent
+
 # Stop local worker and backend
 stop:
     #!/usr/bin/env bash
     pkill -f 'bin/mark-worker' 2>/dev/null || true
     pkill -f 'backend-0.0.1-SNAPSHOT.jar' 2>/dev/null || true
-    echo "stopped worker and backend"
+    pkill -f 'mark-agent' 2>/dev/null || true
+    pkill -f 'mark_agent.main' 2>/dev/null || true
+    echo "stopped worker, backend, and agent"
 
 # Stop worker, backend, and kafka
 down: stop kafka-down
@@ -142,3 +153,5 @@ status:
     pgrep -af 'bin/mark-worker' || echo "  not running"
     echo "backend:"
     pgrep -af 'backend-0.0.1-SNAPSHOT.jar' || echo "  not running"
+    echo "agent:"
+    pgrep -af 'mark_agent.main' || echo "  not running"
