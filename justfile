@@ -52,11 +52,39 @@ ci: build
     mvn -f backend/pom.xml -B package -DskipTests
     cd "{{root}}/frontend" && npm ci && npm run build && npm run lint
 
-# Start Kafka, worker, backend, and the Vite dev server
+# Start Ollama and ensure the default model is present
+ollama-up model="llama3.2":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v ollama >/dev/null 2>&1; then
+      echo "ollama not installed — see https://ollama.com"
+      exit 1
+    fi
+    if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
+      echo "ollama already running"
+    else
+      echo "starting ollama serve..."
+      ollama serve >/dev/null 2>&1 &
+      for _ in $(seq 1 30); do
+        curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 && break
+        sleep 1
+      done
+      if ! curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
+        echo "error: ollama did not start — try: ollama serve"
+        exit 1
+      fi
+    fi
+    if ! ollama list | grep -q "{{model}}"; then
+      echo "pulling {{model}}..."
+      ollama pull "{{model}}"
+    fi
+
+# Start Kafka, worker, backend, agent, and the Vite dev server
 dev:
     #!/usr/bin/env bash
     set -euo pipefail
     cd "{{root}}"
+    export PATH="$HOME/.local/bin:$PATH"
 
     just build
     just kafka-up
@@ -67,6 +95,8 @@ dev:
       just build-backend
     fi
     just frontend-install
+    just ollama-up
+    just agent-install
 
     if ! pgrep -f 'bin/mark-worker' >/dev/null 2>&1; then
       echo "starting mark-worker..."
@@ -83,13 +113,22 @@ dev:
       echo "backend already running"
     fi
 
+    if ! pgrep -f 'mark_agent.main' >/dev/null 2>&1; then
+      echo "starting agent..."
+      (cd agent && uv run mark-agent) &
+      sleep 1
+    else
+      echo "agent already running"
+    fi
+
     echo ""
     echo "Mark dev stack"
     echo "  editor   http://localhost:5173"
     echo "  backend  http://localhost:8080/api/jobs"
-    echo "  agent    http://localhost:8090/agent/health  (run 'just agent' in another terminal)"
+    echo "  agent    http://localhost:8090/agent/health"
+    echo "  ollama   http://localhost:11434"
     echo ""
-    echo "Ctrl+C stops the frontend; run 'just stop' to stop worker and backend"
+    echo "Ctrl+C stops the frontend; run 'just stop' to stop worker, backend, and agent"
     echo ""
 
     cd frontend && npm run dev
@@ -155,3 +194,5 @@ status:
     pgrep -af 'backend-0.0.1-SNAPSHOT.jar' || echo "  not running"
     echo "agent:"
     pgrep -af 'mark_agent.main' || echo "  not running"
+    echo "ollama:"
+    curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 && echo "  running on :11434" || echo "  not running"
