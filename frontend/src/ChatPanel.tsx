@@ -11,17 +11,49 @@ type ChatPanelProps = {
   onApplySource: (source: string) => void
 }
 
-function parseSseBlock(block: string): { event: string; data: string } | null {
-  const lines = block.split('\n')
-  let event = 'message'
-  let data = ''
-  for (const line of lines) {
-    const trimmed = line.replace(/\r$/, '')
-    if (trimmed.startsWith('event:')) event = trimmed.slice(6).trim()
-    else if (trimmed.startsWith('data:')) data += trimmed.slice(5).trim()
+class SseParser {
+  private buffer = ''
+  private event = 'message'
+  private dataLines: string[] = []
+
+  push(chunk: string, onEvent: (event: string, data: string) => void) {
+    this.buffer += chunk
+    const lines = this.buffer.split('\n')
+    this.buffer = lines.pop() ?? ''
+
+    for (const rawLine of lines) {
+      this.readLine(rawLine.replace(/\r$/, ''), onEvent)
+    }
   }
-  if (!data) return null
-  return { event, data }
+
+  flush(onEvent: (event: string, data: string) => void) {
+    if (this.buffer.length > 0) {
+      this.readLine(this.buffer.replace(/\r$/, ''), onEvent)
+      this.buffer = ''
+    }
+    this.dispatch(onEvent)
+  }
+
+  private readLine(line: string, onEvent: (event: string, data: string) => void) {
+    if (line === '') {
+      this.dispatch(onEvent)
+      return
+    }
+    if (line.startsWith('event:')) {
+      this.event = line.slice(6).trim()
+      return
+    }
+    if (line.startsWith('data:')) {
+      this.dataLines.push(line.slice(5).replace(/^\s/, ''))
+    }
+  }
+
+  private dispatch(onEvent: (event: string, data: string) => void) {
+    if (this.dataLines.length === 0) return
+    onEvent(this.event, this.dataLines.join('\n'))
+    this.event = 'message'
+    this.dataLines = []
+  }
 }
 
 export function ChatPanel({ getSource, onApplySource }: ChatPanelProps) {
@@ -33,6 +65,8 @@ export function ChatPanel({ getSource, onApplySource }: ChatPanelProps) {
   const abortRef = useRef<AbortController | null>(null)
 
   function handleEvent(event: string, data: string) {
+    if (event === 'compile') return
+
     if (event === 'step') {
       const payload = JSON.parse(data) as { message: string }
       setSteps((prev) => [...prev, payload.message])
@@ -51,16 +85,6 @@ export function ChatPanel({ getSource, onApplySource }: ChatPanelProps) {
         setError('agent finished without a successful compile')
       }
     }
-  }
-
-  function consumeBuffer(buffer: string): string {
-    const blocks = buffer.split('\n\n')
-    const rest = blocks.pop() ?? ''
-    for (const block of blocks) {
-      const parsed = parseSseBlock(block)
-      if (parsed) handleEvent(parsed.event, parsed.data)
-    }
-    return rest
   }
 
   async function runAgent() {
@@ -95,21 +119,18 @@ export function ChatPanel({ getSource, onApplySource }: ChatPanelProps) {
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
-      let buffer = ''
+      const parser = new SseParser()
 
       while (true) {
         const { done, value } = await reader.read()
         if (value) {
-          buffer += decoder.decode(value, { stream: true })
-          buffer = consumeBuffer(buffer)
+          parser.push(decoder.decode(value, { stream: true }), handleEvent)
         }
-        if (done) break
-      }
-
-      buffer += decoder.decode()
-      if (buffer.trim()) {
-        const parsed = parseSseBlock(buffer)
-        if (parsed) handleEvent(parsed.event, parsed.data)
+        if (done) {
+          parser.push(decoder.decode(), handleEvent)
+          parser.flush(handleEvent)
+          break
+        }
       }
     } catch (err) {
       if (controller.signal.aborted) return
