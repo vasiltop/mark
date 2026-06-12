@@ -51,15 +51,17 @@ async def run(request: RunRequest) -> EventSourceResponse:
 
     seen_steps = 0
     final_state: dict[str, Any] | None = None
-    for update in graph.stream(initial):
-      for _node, node_state in update.items():
-        final_state = node_state
-        steps = node_state.get("steps", [])
-        while seen_steps < len(steps):
-          yield {"event": "step", "data": json.dumps({"message": steps[seen_steps]})}
-          seen_steps += 1
-        if node_state.get("source"):
-          yield {"event": "source", "data": json.dumps({"source": node_state["source"]})}
+    latest_source = request.source or ""
+    for state in graph.stream(initial, stream_mode="values"):
+      final_state = state
+      steps = state.get("steps", [])
+      while seen_steps < len(steps):
+        yield {"event": "step", "data": json.dumps({"message": steps[seen_steps]})}
+        seen_steps += 1
+      source = state.get("source") or ""
+      if source and source != latest_source:
+        latest_source = source
+        yield {"event": "source", "data": json.dumps({"source": source})}
 
     if final_state:
       compile_result = final_state.get("compile_result")
@@ -70,7 +72,7 @@ async def run(request: RunRequest) -> EventSourceResponse:
         "event": "done",
         "data": json.dumps({
           "status": status,
-          "source": final_state.get("source", ""),
+          "source": latest_source or final_state.get("source", ""),
           "outline": final_state.get("outline", ""),
         }),
       }
