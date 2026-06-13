@@ -33,7 +33,7 @@ def compile_mark(source: str, context: dict[str, Any] | None = None) -> CompileR
   if context:
     payload["context"] = context
 
-  with httpx.Client(base_url=settings.mark_api_base, timeout=30.0) as client:
+  with httpx.Client(base_url=settings.backend_url, timeout=30.0) as client:
     create = client.post("/api/jobs", json=payload)
     create.raise_for_status()
     job = create.json()

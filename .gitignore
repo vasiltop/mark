@@ -1,8 +1,9 @@
+.dev/
 bin/
 out.html
 backend/target/
 frontend/node_modules/
 frontend/dist/
 agent/.venv/
-agent/.env
+.env
 agent/**/__pycache__/

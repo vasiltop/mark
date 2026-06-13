@@ -1,198 +1,249 @@
-# Mark dev — run `just` to start the full stack
+# Mark local development
 
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 root := justfile_directory()
+dev_dir := root + "/.dev"
+jar := root + "/backend/target/backend-0.0.1-SNAPSHOT.jar"
 
 default:
-    @just dev
-
-# List recipes
-help:
     @just --list
 
-# Build C++ compiler CLI and Kafka worker
-build:
-    cd "{{root}}" && ./run.sh
-
-# Build Spring Boot backend JAR
-build-backend:
-    cd "{{root}}" && backend/build.sh
-
-# Install frontend deps if missing
-frontend-install:
-    #!/usr/bin/env bash
-    cd "{{root}}/frontend"
-    [[ -d node_modules ]] || npm install
-
-# Start Zookeeper + Kafka
-kafka-up:
-    cd "{{root}}" && docker compose up -d zookeeper kafka
-
-# Stop docker compose services
-kafka-down:
-    cd "{{root}}" && docker compose down
-
-# Compile a .mark example to stdout
-compile example="hello":
-    cd "{{root}}" && ./bin/mark "examples/{{example}}.mark"
-
-# Compile a .mark example to a file
-compile-out example="hello" out="out.html":
-    cd "{{root}}" && ./bin/mark "examples/{{example}}.mark" > "{{out}}"
-
-# Build everything (C++, backend, frontend production bundle)
-build-all: build build-backend
-    cd "{{root}}/frontend" && npm install && npm run build
-
-# Run the same checks as GitHub Actions CI
-ci: build
-    cd "{{root}}" && ./bin/mark examples/hello.mark >/dev/null
-    cd "{{root}}" && ./bin/mark examples/academic.mark >/dev/null
-    mvn -f backend/pom.xml -B package -DskipTests
-    cd "{{root}}/frontend" && npm ci && npm run build && npm run lint
-
-# Start Ollama and ensure the default model is present
-ollama-up model="llama3.2":
+# Run the same checks as .github/workflows/ci.yml
+ci:
     #!/usr/bin/env bash
     set -euo pipefail
-    if ! command -v ollama >/dev/null 2>&1; then
-      echo "ollama not installed — see https://ollama.com"
-      exit 1
-    fi
-    if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
-      echo "ollama already running"
+    cd "{{root}}"
+    mkdir -p bin
+    g++ -Icompiler compiler/mark.cpp -Wall -Wextra -std=c++23 -g -o bin/mark
+    g++ -Icompiler worker/worker.cpp -Wall -Wextra -std=c++23 -g -lrdkafka -o bin/mark-worker
+    ./bin/mark examples/hello.mark | grep -q mark-doc
+    ./bin/mark examples/academic.mark | grep -q mark-math
+    if command -v mvn >/dev/null 2>&1; then
+      mvn_bin=mvn
+    elif [[ -n "${MAVEN:-}" && -x "${MAVEN}" ]]; then
+      mvn_bin="${MAVEN}"
     else
-      echo "starting ollama serve..."
-      ollama serve >/dev/null 2>&1 &
-      for _ in $(seq 1 30); do
-        curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 && break
-        sleep 1
-      done
-      if ! curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
-        echo "error: ollama did not start — try: ollama serve"
-        exit 1
+      version=3.9.9
+      mvn_home="{{dev_dir}}/apache-maven-${version}"
+      if [[ ! -x "${mvn_home}/bin/mvn" ]]; then
+        echo "mvn not found — downloading maven ${version} to .dev/"
+        mkdir -p "{{dev_dir}}"
+        curl -fsSL "https://archive.apache.org/dist/maven/maven-3/${version}/binaries/apache-maven-${version}-bin.tar.gz" \
+          | tar xz -C "{{dev_dir}}"
       fi
+      mvn_bin="${mvn_home}/bin/mvn"
     fi
-    if ! ollama list | grep -q "{{model}}"; then
-      echo "pulling {{model}}..."
-      ollama pull "{{model}}"
+    "${mvn_bin}" -f backend/pom.xml -B package -DskipTests
+    test -f backend/target/backend-0.0.1-SNAPSHOT.jar
+    npm ci --prefix frontend
+    npm run build --prefix frontend
+    npm run lint --prefix frontend
+
+# Build binaries, install deps, and pull the default Ollama model
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{root}}"
+    set -a
+    [[ -f .env ]] && source .env
+    set +a
+    export PATH="$HOME/.local/bin:$PATH"
+    mkdir -p bin "{{dev_dir}}/logs"
+
+    if [[ ! -f .env && -f .env.example ]]; then
+      cp .env.example .env
+      echo "created .env from .env.example"
     fi
+
+    : "${HOST:=localhost}"
+    : "${BACKEND_PORT:=8080}"
+    : "${AGENT_PORT:=8090}"
+    : "${FRONTEND_PORT:=5173}"
+    : "${KAFKA_PORT:=9092}"
+    : "${OLLAMA_PORT:=11434}"
+    : "${BACKEND_URL:=http://${HOST}:${BACKEND_PORT}}"
+    : "${AGENT_URL:=http://${HOST}:${AGENT_PORT}}"
+    : "${FRONTEND_URL:=http://${HOST}:${FRONTEND_PORT}}"
+    : "${OLLAMA_URL:=http://${HOST}:${OLLAMA_PORT}}"
+    : "${KAFKA_BOOTSTRAP:=${HOST}:${KAFKA_PORT}}"
+    : "${OLLAMA_MODEL:=llama3.2}"
+
+    echo "building C++ compiler and worker..."
+    g++ -Icompiler compiler/mark.cpp -Wall -Wextra -std=c++23 -g -o bin/mark
+    g++ -Icompiler worker/worker.cpp -Wall -Wextra -std=c++23 -g -lrdkafka -o bin/mark-worker
+
+    echo "building backend..."
+    if command -v mvn >/dev/null 2>&1; then
+      mvn_bin=mvn
+    elif [[ -n "${MAVEN:-}" && -x "${MAVEN}" ]]; then
+      mvn_bin="${MAVEN}"
+    else
+      version=3.9.9
+      mvn_home="{{dev_dir}}/apache-maven-${version}"
+      if [[ ! -x "${mvn_home}/bin/mvn" ]]; then
+        echo "mvn not found — downloading maven ${version} to .dev/"
+        curl -fsSL "https://archive.apache.org/dist/maven/maven-3/${version}/binaries/apache-maven-${version}-bin.tar.gz" \
+          | tar xz -C "{{dev_dir}}"
+      fi
+      mvn_bin="${mvn_home}/bin/mvn"
+    fi
+    "${mvn_bin}" -f backend/pom.xml -q package -DskipTests
+
+    echo "installing frontend deps..."
+    npm install --prefix frontend
+
+    echo "installing agent deps..."
+    uv sync --directory agent
+
+    if command -v ollama >/dev/null 2>&1; then
+      if ! curl -sf "${OLLAMA_URL}/api/tags" >/dev/null 2>&1; then
+        echo "starting ollama..."
+        nohup ollama serve >"{{dev_dir}}/logs/ollama.log" 2>&1 &
+        echo $! >"{{dev_dir}}/ollama.pid"
+        for _ in $(seq 1 30); do
+          curl -sf "${OLLAMA_URL}/api/tags" >/dev/null 2>&1 && break
+          sleep 1
+        done
+      fi
+      if ! ollama list | grep -q "${OLLAMA_MODEL}"; then
+        echo "pulling ${OLLAMA_MODEL}..."
+        ollama pull "${OLLAMA_MODEL}"
+      fi
+    else
+      echo "warning: ollama not installed — agent needs it (https://ollama.com)"
+    fi
+
+    echo "setup complete"
 
 # Start Kafka, worker, backend, agent, and the Vite dev server
 dev:
     #!/usr/bin/env bash
     set -euo pipefail
     cd "{{root}}"
+    set -a
+    [[ -f .env ]] && source .env
+    set +a
     export PATH="$HOME/.local/bin:$PATH"
+    mkdir -p "{{dev_dir}}/logs"
 
-    just build
-    just kafka-up
-    echo "waiting for kafka..."
-    sleep 4
+    : "${HOST:=localhost}"
+    : "${BACKEND_PORT:=8080}"
+    : "${AGENT_PORT:=8090}"
+    : "${FRONTEND_PORT:=5173}"
+    : "${KAFKA_PORT:=9092}"
+    : "${OLLAMA_PORT:=11434}"
+    : "${BACKEND_URL:=http://${HOST}:${BACKEND_PORT}}"
+    : "${AGENT_URL:=http://${HOST}:${AGENT_PORT}}"
+    : "${FRONTEND_URL:=http://${HOST}:${FRONTEND_PORT}}"
+    : "${OLLAMA_URL:=http://${HOST}:${OLLAMA_PORT}}"
+    : "${KAFKA_BOOTSTRAP:=${HOST}:${KAFKA_PORT}}"
 
-    if [[ ! -f backend/target/backend-0.0.1-SNAPSHOT.jar ]]; then
-      just build-backend
-    fi
-    just frontend-install
-    just ollama-up
-    just agent-install
-
-    if ! pgrep -f 'bin/mark-worker' >/dev/null 2>&1; then
-      echo "starting mark-worker..."
-      ./bin/mark-worker &
-    else
-      echo "mark-worker already running"
-    fi
-
-    if ! pgrep -f 'backend-0.0.1-SNAPSHOT.jar' >/dev/null 2>&1; then
-      echo "starting backend..."
-      java -jar backend/target/backend-0.0.1-SNAPSHOT.jar &
-      sleep 2
-    else
-      echo "backend already running"
+    if [[ ! -x bin/mark-worker || ! -f "{{jar}}" ]]; then
+      echo "missing build artifacts — run 'just setup' first"
+      exit 1
     fi
 
-    if ! pgrep -f 'mark_agent.main' >/dev/null 2>&1; then
-      echo "starting agent..."
-      (cd agent && uv run mark-agent) &
+    start_bg() {
+      local name="$1" pattern="$2" workdir="$3"
+      shift 3
+      if pgrep -f "$pattern" >/dev/null 2>&1; then
+        echo "$name already running"
+        return
+      fi
+      echo "starting $name..."
+      (cd "$workdir" && nohup "$@" >"{{dev_dir}}/logs/$name.log" 2>&1 & echo $! >"{{dev_dir}}/$name.pid")
+    }
+
+    wait_http() {
+      local name="$1" url="$2"
+      for _ in $(seq 1 60); do
+        if curl -s -o /dev/null "$url" 2>/dev/null; then
+          echo "$name ready"
+          return
+        fi
+        sleep 1
+      done
+      echo "error: $name did not become ready — check {{dev_dir}}/logs/$name.log"
+      exit 1
+    }
+
+    wait_tcp() {
+      local name="$1" host="$2" port="$3"
+      for _ in $(seq 1 60); do
+        if (echo >/dev/tcp/"$host"/"$port") 2>/dev/null; then
+          echo "$name ready"
+          return
+        fi
+        sleep 1
+      done
+      echo "error: $name did not become ready — check {{dev_dir}}/logs/$name.log"
+      exit 1
+    }
+
+    echo "starting kafka..."
+    docker compose up -d zookeeper kafka
+    for _ in $(seq 1 30); do
+      docker compose exec -T kafka kafka-broker-api-versions --bootstrap-server "${KAFKA_BOOTSTRAP}" >/dev/null 2>&1 && break
       sleep 1
-    else
-      echo "agent already running"
+    done
+
+    if command -v ollama >/dev/null 2>&1 && ! curl -sf "${OLLAMA_URL}/api/tags" >/dev/null 2>&1; then
+      echo "starting ollama..."
+      nohup ollama serve >"{{dev_dir}}/logs/ollama.log" 2>&1 &
+      echo $! >"{{dev_dir}}/ollama.pid"
+      wait_http ollama "${OLLAMA_URL}/api/tags"
     fi
+
+    start_bg worker 'bin/mark-worker' "{{root}}" ./bin/mark-worker
+    start_bg backend 'backend-0.0.1-SNAPSHOT.jar' "{{root}}" env BACKEND_PORT="${BACKEND_PORT}" FRONTEND_URL="${FRONTEND_URL}" KAFKA_BOOTSTRAP="${KAFKA_BOOTSTRAP}" java -jar "{{jar}}"
+    wait_tcp backend "${HOST}" "${BACKEND_PORT}"
+
+    start_bg agent 'mark-agent' "{{root}}/agent" env BACKEND_URL="${BACKEND_URL}" AGENT_URL="${AGENT_URL}" FRONTEND_URL="${FRONTEND_URL}" OLLAMA_URL="${OLLAMA_URL}" AGENT_PORT="${AGENT_PORT}" uv run mark-agent
+    wait_http agent "${AGENT_URL}/agent/health"
 
     echo ""
     echo "Mark dev stack"
-    echo "  editor   http://localhost:5173"
-    echo "  backend  http://localhost:8080/api/jobs"
-    echo "  agent    http://localhost:8090/agent/health"
-    echo "  ollama   http://localhost:11434"
+    echo "  editor   ${FRONTEND_URL}"
+    echo "  backend  ${BACKEND_URL}/api/jobs"
+    echo "  agent    ${AGENT_URL}/agent/health"
+    echo "  ollama   ${OLLAMA_URL}"
     echo ""
-    echo "Ctrl+C stops the frontend; run 'just stop' to stop worker, backend, and agent"
+    echo "Ctrl+C stops the frontend; run 'just stop' to stop everything else"
     echo ""
 
     cd frontend && npm run dev
 
-# Start only infrastructure + worker + backend (no frontend)
-dev-api: build kafka-up
+# Stop worker, backend, agent, frontend, kafka, and ollama if we started it
+stop:
     #!/usr/bin/env bash
     set -euo pipefail
     cd "{{root}}"
-    sleep 4
-    if [[ ! -f backend/target/backend-0.0.1-SNAPSHOT.jar ]]; then
-      just build-backend
-    fi
-    if ! pgrep -f 'bin/mark-worker' >/dev/null 2>&1; then
-      ./bin/mark-worker &
-    fi
-    if ! pgrep -f 'backend-0.0.1-SNAPSHOT.jar' >/dev/null 2>&1; then
-      java -jar backend/target/backend-0.0.1-SNAPSHOT.jar &
-    fi
-    echo "API stack running on http://localhost:8080"
+    set -a
+    [[ -f .env ]] && source .env
+    set +a
 
-# Run worker in foreground
-worker:
-    cd "{{root}}" && ./bin/mark-worker
+    stop_pid() {
+      local name="$1" file="{{dev_dir}}/$1.pid"
+      if [[ -f "$file" ]]; then
+        local pid
+        pid=$(<"$file")
+        if kill -0 "$pid" 2>/dev/null; then
+          kill "$pid" 2>/dev/null || true
+          echo "stopped $name"
+        fi
+        rm -f "$file"
+      fi
+    }
 
-# Run backend in foreground
-backend:
-    cd "{{root}}" && java -jar backend/target/backend-0.0.1-SNAPSHOT.jar
-
-# Run Vite dev server
-frontend:
-    cd "{{root}}/frontend" && npm run dev
-
-# Install agent deps with uv
-agent-install:
-    cd "{{root}}/agent" && uv sync
-
-# Run LangGraph agent service (Ollama)
-agent:
-    cd "{{root}}/agent" && uv run mark-agent
-
-# Stop local worker and backend
-stop:
-    #!/usr/bin/env bash
     pkill -f 'bin/mark-worker' 2>/dev/null || true
     pkill -f 'backend-0.0.1-SNAPSHOT.jar' 2>/dev/null || true
     pkill -f 'mark-agent' 2>/dev/null || true
-    pkill -f 'mark_agent.main' 2>/dev/null || true
-    echo "stopped worker, backend, and agent"
+    pkill -f 'vite.*frontend' 2>/dev/null || true
 
-# Stop worker, backend, and kafka
-down: stop kafka-down
+    for name in worker backend agent ollama; do
+      stop_pid "$name"
+    done
 
-# Show running services
-status:
-    #!/usr/bin/env bash
-    cd "{{root}}"
-    echo "kafka:"
-    docker compose ps kafka 2>/dev/null | tail -n +2 || echo "  not running"
-    echo "worker:"
-    pgrep -af 'bin/mark-worker' || echo "  not running"
-    echo "backend:"
-    pgrep -af 'backend-0.0.1-SNAPSHOT.jar' || echo "  not running"
-    echo "agent:"
-    pgrep -af 'mark_agent.main' || echo "  not running"
-    echo "ollama:"
-    curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 && echo "  running on :11434" || echo "  not running"
+    docker compose down 2>/dev/null || true
+    echo "stopped all services"

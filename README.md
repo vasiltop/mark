@@ -5,33 +5,25 @@ Typst-like markup language that compiles to HTML.
 ## Quick start
 
 ```bash
-just dev
+just setup   # first time: build everything and pull deps
+just dev     # start the full stack
+just stop    # stop everything
 ```
 
-## Common commands
+Kafka runs in Docker; the worker, backend, frontend, and agent run on the host.
 
-```bash
-just build              # C++ compiler and worker
-just compile            # compile examples/hello.mark to stdout
-just compile-out        # compile to out.html
-just ci                 # run CI checks locally
-just ollama-up          # start ollama and pull default model
-just agent-install      # uv sync agent deps
-just agent              # LangGraph agent on :8090
-just stop               # stop worker and backend
-just down               # stop everything including Kafka
-just status             # show what's running
-just help               # list all recipes
-```
+Copy [`.env.example`](.env.example) to `.env` at the repo root (or run `just setup`, which creates `.env` if missing). `just dev` loads it automatically.
+
+Key variables:
+
+- `BACKEND_URL`, `AGENT_URL`, `FRONTEND_URL`, `OLLAMA_URL` — service URLs
+- `BACKEND_PORT`, `AGENT_PORT`, `FRONTEND_PORT`, `KAFKA_PORT`, `OLLAMA_PORT` — ports
+- `KAFKA_BOOTSTRAP`, `KAFKA_JOBS_TOPIC`, `KAFKA_RESULTS_TOPIC` — Kafka
+- `OLLAMA_MODEL` — default `llama3.2`
 
 ## Agent
 
 Multi-agent document authoring with LangGraph and Ollama. The agent plans, writes Mark source, and compiles via the existing Spring API until the document succeeds or retries are exhausted.
-
-Configure in `agent/.env` (see `agent/.env.example`):
-
-- `OLLAMA_MODEL` — default `llama3.2`
-- `MARK_API_BASE` — default `http://localhost:8080`
 
 ## Docs
 

@@ -14,7 +14,7 @@ from mark_agent.tools.compile import compile_mark
 def make_llm() -> ChatOllama:
   return ChatOllama(
     model=settings.ollama_model,
-    base_url=settings.ollama_base_url,
+    base_url=settings.ollama_url,
     temperature=0.2,
   )
 

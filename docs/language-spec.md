@@ -38,19 +38,9 @@ flowchart LR
 ## Local development
 
 ```bash
-# quick start
-./dev.sh
-
-# compiler only
-./run.sh
-./bin/mark examples/hello.mark > out.html
-./bin/mark examples/academic.mark > out.html
-
-# full stack
-docker compose up -d zookeeper kafka
-./bin/mark-worker &
-java -jar backend/target/backend-0.0.1-SNAPSHOT.jar
-cd frontend && npm install && npm run dev
+just setup   # build compiler, backend, frontend, and agent deps
+just dev     # start Kafka, worker, backend, agent, and the editor
+just stop    # stop all services
 ```
 
 ## API
