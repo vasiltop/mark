@@ -60,3 +60,58 @@ jobs:
           npm ci
           npm run build
           npm run lint
+
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      compiler: ${{ steps.filter.outputs.compiler }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            compiler:
+              - 'compiler/**'
+              - '.github/workflows/ci.yml'
+
+  release:
+    needs: [compiler, changes]
+    if: >
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.compiler == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y g++
+
+      - name: Build release binary
+        run: |
+          g++ -Icompiler compiler/mark.cpp -Wall -Wextra -std=c++23 -O2 -DNDEBUG -o mark
+          strip mark
+
+      - name: Smoke test examples
+        run: |
+          ./mark examples/hello.mark | grep -q mark-doc
+          ./mark examples/academic.mark | grep -q mark-math
+
+      - name: Package
+        run: tar czf mark-linux-x86_64.tar.gz mark
+
+      - name: Set release metadata
+        id: meta
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.0.${{ github.run_number }}
+          name: v0.0.${{ github.run_number }} (${{ steps.meta.outputs.short_sha }})
+          generate_release_notes: true
+          files: mark-linux-x86_64.tar.gz
